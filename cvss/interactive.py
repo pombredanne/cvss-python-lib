@@ -1,6 +1,6 @@
 # Copyright (c) 2016 Red Hat, Inc.
 # Author: Stanislav Kontar, Red Hat Product Security
-# License: GPLv3+
+# License: LGPLv3+
 
 """
 Functions for interactively building CVSS vector string.
@@ -106,5 +106,8 @@ def ask_interactively(version=3, all_metrics=False, no_colors=False):
                 break
         print()
 
-    vector_string = '/'.join(vector)
+    if version == 3:
+        vector_string = 'CVSS:3.0/' + '/'.join(vector)
+    else:
+        vector_string = '/'.join(vector)
     return vector_string

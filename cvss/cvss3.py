@@ -1,6 +1,6 @@
 # Copyright (c) 2016 Red Hat, Inc.
 # Author: Stanislav Kontar, Red Hat Product Security
-# License: GPLv3+
+# License: LGPLv3+
 
 """
 Implements class for CVSS3 specification as defined at
@@ -24,7 +24,7 @@ def round_up(value):
     Round up is defined as the smallest number, specified to one decimal place, that is equal to
     or higher than its input. For example, Round up (4.02) is 4.1; and Round up (4.00) is 4.0.
     """
-    return (value * D('10.0')).to_integral_exact(rounding=ROUND_CEILING) / D('10.0')
+    return value.quantize(D('0.1'), rounding=ROUND_CEILING)
 
 
 class CVSS3(object):
@@ -118,7 +118,8 @@ class CVSS3(object):
             except IndexError:
                 raise CVSS3MalformedError('Malformed CVSS3 vector "{0}"'.format(self.vector))
         else:
-            fields = self.vector.split('/')
+            raise CVSS3MalformedError('Malformed CVSS3 vector "{0}" is missing mandatory prefix'
+                                      .format(self.vector))
 
         # Parse fields
         for field in fields:
