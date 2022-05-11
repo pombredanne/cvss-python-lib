@@ -1,8 +1,12 @@
-from os import path
+import json
 import sys
 import unittest
+from os import path
 
-from cvss import CVSS2
+sys.path.insert(0, path.dirname(path.dirname(path.abspath(__file__))))
+
+from cvss.cvss2 import CVSS2
+from cvss import parser
 from cvss.exceptions import CVSS2MalformedError, CVSS2MandatoryError, CVSS2RHScoreDoesNotMatch, \
     CVSS2RHMalformedError
 
@@ -74,6 +78,43 @@ class TestCVSS2(unittest.TestCase):
         self.assertEqual('AV:A/AC:H/Au:M/C:C/I:N/A:C/E:POC/RL:W/CDP:H/TD:N/IR:L/AR:M',
                          CVSS2(v).clean_vector())
 
+    def test_severities(self):
+        """
+        Tests for computing severities.
+        """
+        v = 'AV:L/AC:H/Au:M/C:N/I:N/A:N'
+        self.assertEqual(('Low', 'None', 'None'), CVSS2(v).severities(), v)
+
+        v = 'AV:L/AC:H/Au:M/C:P/I:N/A:N/E:U/RL:ND/RC:ND/CDP:N/TD:ND/CR:ND/IR:ND/AR:ND'
+        self.assertEqual(('Low', 'Low', 'Low'), CVSS2(v).severities(), v)
+
+        v = 'AV:L/AC:H/Au:M/C:P/I:N/A:N/E:U/RL:OF/RC:ND/CDP:N/TD:ND/CR:L/IR:ND/AR:ND'
+        self.assertEqual(('Low', 'Low', 'Low'), CVSS2(v).severities(), v)
+
+        v = 'AV:L/AC:H/Au:M/C:P/I:N/A:P/E:U/RL:OF/RC:UC/CDP:N/TD:N/CR:L/IR:L/AR:ND'
+        self.assertEqual(('Low', 'Low', 'Low'), CVSS2(v).severities(), v)
+
+        v = 'AV:A/AC:M/Au:M/C:P/I:P/A:P/E:F/RL:W/RC:C/CDP:N/TD:ND/CR:ND/IR:ND/AR:ND'
+        self.assertEqual(('Medium', 'Medium', 'Medium'), CVSS2(v).severities(), v)
+
+        v = 'AV:A/AC:M/Au:M/C:P/I:P/A:P/E:F/RL:U/RC:C/CDP:N/TD:N/CR:ND/IR:ND/AR:ND'
+        self.assertEqual(('Medium', 'Medium', 'Low'), CVSS2(v).severities(), v)
+
+        v = 'AV:A/AC:M/Au:M/C:P/I:P/A:P/E:H/RL:U/RC:C/CDP:L/TD:L/CR:ND/IR:ND/AR:ND'
+        self.assertEqual(('Medium', 'Medium', 'Low'), CVSS2(v).severities(), v)
+
+        v = 'AV:N/AC:L/Au:S/C:C/I:P/A:P/E:H/RL:U/RC:C/CDP:MH/TD:H/CR:ND/IR:ND/AR:ND'
+        self.assertEqual(('High', 'High', 'High'), CVSS2(v).severities(), v)
+
+        v = 'AV:N/AC:L/Au:S/C:C/I:P/A:P/E:H/RL:U/RC:C/CDP:MH/TD:H/CR:ND/IR:ND/AR:ND'
+        self.assertEqual(('High', 'High', 'High'), CVSS2(v).severities(), v)
+
+        v = 'AV:N/AC:L/Au:S/C:C/I:C/A:C/E:H/RL:U/RC:C/CDP:L/TD:M/CR:ND/IR:ND/AR:ND'
+        self.assertEqual(('High', 'High', 'Medium'), CVSS2(v).severities(), v)
+
+        v = 'AV:A/AC:M/Au:S/C:P/I:P/A:P/E:U/RL:OF/RC:ND'
+        self.assertEqual(('Medium', 'Low', 'None'), CVSS2(v).severities(), v)
+
     def test_exceptions(self):
         """
         Test for exceptions in CVSS vector parsing.
@@ -108,6 +149,10 @@ class TestCVSS2(unittest.TestCase):
         v = 'AV:L/AC:L/Au:M/C:C/I:P/TD:M/IR:H/AR:H'
         self.assertRaises(CVSS2MandatoryError, CVSS2, v)
 
+        # Empty field
+        v = 'AV:L//Au:M/C:C/I:P/TD:M/IR:H/AR:H'
+        self.assertRaises(CVSS2MalformedError, CVSS2, v)
+
     def test_rh_vector(self):
         """
         Test for parsing Red Hat style of CVSS vectors, e.g. containing score.
@@ -134,6 +179,99 @@ class TestCVSS2(unittest.TestCase):
         # Score is not float
         v = 'ABC/AV:L/AC:H/Au:M/C:C/I:P/A:P'
         self.assertRaises(CVSS2RHMalformedError, CVSS2.from_rh_vector, v)
+
+    def test_parse_from_text_cvss2(self):
+        """
+        Tests for parsing CVSS from text.
+        """
+        i = 'AV:N/AC:L/Au:N/C:C/I:C/A:C'
+        e = [CVSS2(i)]
+        self.assertEqual(parser.parse_cvss_from_text(i), e)
+
+        i = 'AV:L/AC:L/Au:S/C:P/I:P/A:P/E:U/RC:C/CDP:LM/TD:L/IR:H/AR:M'
+        e = [CVSS2(i)]
+        self.assertEqual(parser.parse_cvss_from_text(i), e)
+
+        i = 'AV:L/AC:M/Au:S/C:N/I:P/A:C/E:U/RL:OF/RC:UR/CDP:N/TD:L/CR:H/IR:H/AR:H'
+        e = [CVSS2(i)]
+        self.assertEqual(parser.parse_cvss_from_text(i), e)
+
+        # Bad value
+        i = 'AV:N/AC:L/Au:N/C:C/I:C/A:X'
+        e = []
+        self.assertEqual(parser.parse_cvss_from_text(i), e)
+
+        # Truncated vector
+        i = 'AV:N/AC:'
+        e = []
+        self.assertEqual(parser.parse_cvss_from_text(i), e)
+
+        i = ''
+        e = []
+        self.assertEqual(parser.parse_cvss_from_text(i), e)
+
+        # Correct parsing
+        v = 'AV:N/AC:L/Au:N/C:C/I:C/A:C'
+        i = 'xxx ' + v
+        e = [CVSS2(v)]
+        self.assertEqual(parser.parse_cvss_from_text(i), e)
+
+        v = 'AV:N/AC:L/Au:N/C:C/I:C/A:C'
+        i = v + ' xxx'
+        e = [CVSS2(v)]
+        self.assertEqual(parser.parse_cvss_from_text(i), e)
+
+        # End of sentence
+        v = 'AV:N/AC:L/Au:N/C:C/I:C/A:C'
+        i = v + '.'
+        e = [CVSS2(v)]
+        self.assertEqual(parser.parse_cvss_from_text(i), e)
+
+        # Missing space after dot before vector
+        v = 'AV:N/AC:L/Au:N/C:C/I:C/A:C'
+        i = 'xxx.' + v
+        e = [CVSS2(v)]
+        self.assertEqual(parser.parse_cvss_from_text(i), e)
+
+        # Missing space after dot after vector
+        v = 'AV:N/AC:L/Au:N/C:C/I:C/A:C'
+        i = v + '.xxx'
+        e = [CVSS2(v)]
+        self.assertEqual(parser.parse_cvss_from_text(i), e)
+
+    def test_parse_from_text_multiple_vectors_same_cvss(self):
+        v = 'AV:N/AC:L/Au:N/C:C/I:C/A:C'
+        e = [CVSS2(v)]
+        i = 'Title: {0}\nThis is an overview of {0} problem.\nLinks: {0}'.format(v)
+        self.assertEqual(parser.parse_cvss_from_text(i), e)
+
+    def test_json_ordering(self):
+        with open(path.join(WD, 'vectors_random2')) as f:
+            for line in f:
+                vector, _ = line.split(' - ')
+                cvss = CVSS2(vector).as_json(sort=True)
+                old_key = ''
+                for key in cvss:
+                    if key < old_key:
+                        self.fail('dict ordering was not preserved: key {} less than previous key {} for CVSS object {}'.format(key, old_key, cvss))
+                    old_key = key
+
+    def test_json_schema_repr(self):
+        try:
+            import jsonschema
+        except ImportError:
+            return
+        with open(path.join(WD, 'vectors_random2')) as f:
+            for line in f:
+                vector, _ = line.split(' - ')
+                cvss = CVSS2(vector)
+                with open(path.join(WD, 'schemas/cvss-v2.0.json')) as schema_file:
+                    schema = json.load(schema_file)
+                try:
+                    jsonschema.validate(instance=cvss.as_json(), schema=schema)
+                except jsonschema.exceptions.ValidationError:
+                    self.fail('jsonschema validation failed on vector: {}'.format(vector))
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -13,7 +13,8 @@ from __future__ import unicode_literals
 
 from decimal import Decimal as D, ROUND_HALF_UP
 
-from .constants2 import METRICS_ABBREVIATIONS, METRICS_MANDATORY, METRICS_VALUES
+from .constants2 import METRICS_ABBREVIATIONS, METRICS_MANDATORY, METRICS_VALUES, \
+    METRICS_VALUE_NAMES, OrderedDict
 from .exceptions import CVSS2MalformedError, CVSS2MandatoryError, CVSS2RHMalformedError, \
     CVSS2RHScoreDoesNotMatch
 
@@ -101,6 +102,9 @@ class CVSS2(object):
 
         # Parse fields
         for field in fields:
+            if field == '':
+                raise CVSS2MalformedError('Empty field in CVSS2 vector "{0}"'.format(self.vector))
+
             try:
                 metric, value = field.split(':')
             except ValueError:
@@ -138,6 +142,14 @@ class CVSS2(object):
         """
         string_value = self.metrics.get(abbreviation, 'ND')
         result = METRICS_VALUES[abbreviation][string_value]
+        return result
+
+    def get_value_description(self, abbreviation):
+        """
+        Gets textual description of specific metric specified by its abbreviation.
+        """
+        string_value = self.metrics.get(abbreviation, 'ND')
+        result = METRICS_VALUE_NAMES[abbreviation][string_value]
         return result
 
     def impact_equation(self):
@@ -248,6 +260,25 @@ class CVSS2(object):
                     vector.append('{0}:{1}'.format(metric, value))
         return '/'.join(vector)
 
+    def severities(self):
+        """
+        Returns severities based on scores. https://nvd.nist.gov/vuln-metrics/cvss
+
+        Returns:
+            (tuple): Base Severity, Temporal Severity, Environmental Severity as strings
+        """
+        severities = []
+        for score in (self.base_score, self.temporal_score, self.environmental_score):
+            if score is None:
+                severities.append('None')
+            elif score <= D('3.9'):
+                severities.append('Low')
+            elif score <= D('6.9'):
+                severities.append('Medium')
+            else:
+                severities.append('High')
+        return tuple(severities)
+
     def rh_vector(self):
         """
         Returns cleaned vector with score in Red Hat notation, e.g. score/vector.
@@ -255,3 +286,65 @@ class CVSS2(object):
         Example: 5.0/AV:L/AC:L/Au:M/C:N/I:P/A:C/E:U/RL:W/CDP:L/TD:H/AR:M
         """
         return str(self.scores()[0]) + '/' + self.clean_vector()
+
+    def __eq__(self, o):
+        if isinstance(o, CVSS2):
+            return self.clean_vector().__eq__(o.clean_vector())
+        return NotImplemented
+
+    def __hash__(self):
+        return hash(self.clean_vector())
+
+    def as_json(self, sort=False):
+        """
+        Returns a dictionary formatted with attribute names and values defined by the official
+        CVSS JSON schema:
+
+        https://www.first.org/cvss/cvss-v2.0.json?20170531
+
+        Serialize a CVSS2 instance to JSON with:
+
+        json.dumps(cvss2.as_json())
+
+        Or get sorted JSON in an OrderedDict with:
+
+        json.dumps(cvss2.as_json(sort=True))
+
+        Returns:
+            (dict): JSON schema-compatible CVSS representation
+        """
+        def us(text):
+            # Uppercase and convert to snake case
+            return text.upper().replace('-', '_').replace(' ', '_')
+
+        data = {
+            # Meta
+            'version': '2.0',
+            # Vector
+            'vectorString': self.vector,
+            # Metrics
+            'accessVector': us(self.get_value_description('AV')),
+            'accessComplexity': us(self.get_value_description('AC')),
+            'authentication': us(self.get_value_description('Au')),
+            'confidentialityImpact': us(self.get_value_description('C')),
+            'integrityImpact': us(self.get_value_description('I')),
+            'availabilityImpact': us(self.get_value_description('A')),
+            'exploitability': us(self.get_value_description('E')),
+            'remediationLevel': us(self.get_value_description('RL')),
+            'reportConfidence': us(self.get_value_description('RC')),
+            'collateralDamagePotential': us(self.get_value_description('CDP')),
+            'targetDistribution': us(self.get_value_description('TD')),
+            'confidentialityRequirement': us(self.get_value_description('CR')),
+            'integrityRequirement': us(self.get_value_description('IR')),
+            'availabilityRequirement': us(self.get_value_description('AR')),
+            # Scores
+            'baseScore': float(self.base_score),
+        }
+        if self.temporal_score:
+            data['temporalScore'] = float(self.temporal_score)
+        if self.environmental_score:
+            data['environmentalScore'] = float(self.environmental_score)
+        if sort:
+            data = OrderedDict(sorted(data.items()))
+
+        return data

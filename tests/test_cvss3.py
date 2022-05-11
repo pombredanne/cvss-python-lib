@@ -1,8 +1,13 @@
-from os import path
+import json
 import sys
 import unittest
+from os import path
 
-from cvss import CVSS3
+sys.path.insert(0, path.dirname(path.dirname(path.abspath(__file__))))
+
+from cvss.cvss3 import CVSS3
+from cvss.cvss2 import CVSS2
+from cvss import parser
 from cvss.exceptions import CVSS3MalformedError, CVSS3MandatoryError, CVSS3RHScoreDoesNotMatch, \
     CVSS3RHMalformedError
 
@@ -37,6 +42,13 @@ class TestCVSS3(unittest.TestCase):
         """
         self.run_tests_from_file('vectors_simple3')
 
+    def test_simple_31(self):
+        """
+        All vector combinations with only mandatory fields. Computed using
+         https://www.first.org/cvss/calculator/3.1 . 2,592 vectors.
+        """
+        self.run_tests_from_file('vectors_simple31')
+
     def test_calculator(self):
         """
         Hand picked vectors using https://www.first.org/cvss/calculator/3.0 . 2 vectors.
@@ -55,6 +67,13 @@ class TestCVSS3(unittest.TestCase):
         https://pypi.python.org/pypi/cvsslib . 100,000 vectors.
         """
         self.run_tests_from_file('vectors_random3')
+
+    def test_random_31(self):
+        """
+        Random generated test vectors, values computed using
+        https://www.first.org/cvss/calculator/3.1 . 100,000 vectors.
+        """
+        self.run_tests_from_file('vectors_random31')
 
     def test_clean_vector(self):
         """
@@ -145,12 +164,24 @@ class TestCVSS3(unittest.TestCase):
         v = 'CVSS:3.0/AV:P/AV:L/AC:H/PR:H/UI:R/S:C/C:H/I:H/A:N/E:H/RL:O/RC:R/CR:H/MAC:H/MC:L'
         self.assertRaises(CVSS3MalformedError, CVSS3, v)
 
-        # Missing mandatory
+        # Missing mandatory metric PR
         v = 'CVSS:3.0/AV:P/AC:H/UI:R/S:C/C:H/I:H/A:N/E:H/RL:O/RC:R/CR:H/MAC:H/MC:L'
+        self.assertRaises(CVSS3MandatoryError, CVSS3, v)
+
+        # Missing mandatory metric S
+        v = 'CVSS:3.0/AV:N/AC:L/PR:N/UI:N/C:H/I:H/A:H'
         self.assertRaises(CVSS3MandatoryError, CVSS3, v)
 
         # Missing prefix
         v = 'AV:P/AC:H/PR:H/UI:R/S:C/C:H/I:H/A:N/E:H/RL:O/RC:R/CR:H/MAC:H/MC:L'
+        self.assertRaises(CVSS3MalformedError, CVSS3, v)
+
+        # Unsupported version
+        v = 'CVSS:3.2/AV:P/AC:H/PR:H/UI:R/S:C/C:H/I:H/A:N/E:H/RL:O/RC:R/CR:H/MAC:H/MC:L'
+        self.assertRaises(CVSS3MalformedError, CVSS3, v)
+
+        # Empty field
+        'CVSS:3.0//AC:H/PR:H/UI:R/S:U/C:L/I:N/A:L'
         self.assertRaises(CVSS3MalformedError, CVSS3, v)
 
     def test_rh_vector(self):
@@ -179,6 +210,150 @@ class TestCVSS3(unittest.TestCase):
         # Score is not float
         v = 'ABC/CVSS:3.0/AV:A/AC:H/PR:N/UI:R/S:C/C:L/I:H/A:L'
         self.assertRaises(CVSS3RHMalformedError, CVSS3.from_rh_vector, v)
+
+    def test_parse_from_text_cvss3(self):
+        i = 'CVSS:3.0/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H'
+        e = [CVSS3(i)]
+        self.assertEqual(parser.parse_cvss_from_text(i), e)
+
+        i = 'CVSS'
+        e = []
+        self.assertEqual(parser.parse_cvss_from_text(i), e)
+
+        # Truncated vector
+        i = 'CVSS:3'
+        e = []
+        self.assertEqual(parser.parse_cvss_from_text(i), e)
+
+        i = 'CVSS:3.0'
+        e = []
+        self.assertEqual(parser.parse_cvss_from_text(i), e)
+
+        i = 'CVSS:3.0/'
+        e = []
+        self.assertEqual(parser.parse_cvss_from_text(i), e)
+
+        i = 'CVSS:3.0/AV:N'
+        e = []
+        self.assertEqual(parser.parse_cvss_from_text(i), e)
+
+        i = 'CVSS:3.0/AV:X'
+        e = []
+        self.assertEqual(parser.parse_cvss_from_text(i), e)
+
+        i = 'CVSS:3.0/AV:ZZZ'
+        e = []
+        self.assertEqual(parser.parse_cvss_from_text(i), e)
+
+        i = 'CVSS:3.0/AV:L/AC:L/PR:L/UI:R/S:C/C:L/I:L/A:N/MAV:A/MAC:L/MPR:N/MUI:N/MS:U/MC:N/MI:N/MA:N'
+        e = [CVSS3(i)]
+        self.assertEqual(parser.parse_cvss_from_text(i), e)
+
+        # Missing mandatory prefix
+        i = 'AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:N'
+        e = []
+        self.assertEqual(parser.parse_cvss_from_text(i), e)
+
+        v1 = 'CVSS:3.0/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H'
+        v2 = 'CVSS:3.0/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N'
+        i = ' '.join([v1, v2])
+        e = set()
+        e.add(CVSS3(v1))
+        e.add(CVSS3(v2))
+        self.assertEqual(set(parser.parse_cvss_from_text(i)), e)
+
+        # Correct text
+        v = 'CVSS:3.0/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H'
+        i = 'xxx ' + v
+        e = [CVSS3(v)]
+        self.assertEqual(parser.parse_cvss_from_text(i), e)
+
+        v = 'CVSS:3.0/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H'
+        i = v + ' xxx'
+        e = [CVSS3(v)]
+        self.assertEqual(parser.parse_cvss_from_text(i), e)
+
+    def test_parse_from_text_optional_sentence_cases(self):
+        # Missing space after end of sentence and before vector
+        v = 'CVSS:3.0/AV:N/AC:L/PR:N/UI:R/S:C/C:H/I:H/A:H'
+        i = '.' + v
+        e = [CVSS3(v)]
+        self.assertEqual(parser.parse_cvss_from_text(i), e)
+
+        # End of sentence
+        v = 'CVSS:3.0/AV:N/AC:L/PR:N/UI:R/S:C/C:H/I:H/A:H'
+        i = v + '.'
+        e = [CVSS3(v)]
+        self.assertEqual(parser.parse_cvss_from_text(i), e)
+
+        # Missing space after dot before vector
+        v = 'CVSS:3.0/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H'
+        i = 'xxx.' + v
+        e = [CVSS3(v)]
+        self.assertEqual(parser.parse_cvss_from_text(i), e)
+
+    def test_parse_from_text_both_versions(self):
+        v1 = 'CVSS:3.0/AV:N/AC:L/PR:N/UI:R/S:C/C:H/I:H/A:H'
+        v2 = 'AV:N/AC:L/Au:N/C:C/I:C/A:C'
+        i = 'xxx. ' + v1 + ' ' + v2 + '. xxx'
+        e = set()
+        e.add(CVSS3(v1))
+        e.add(CVSS2(v2))
+        self.assertEqual(set(parser.parse_cvss_from_text(i)), e)
+
+    def test_parse_from_text_both_versions_optional(self):
+        # Missing spaces around sentence
+        v1 = 'CVSS:3.0/AV:N/AC:L/PR:N/UI:R/S:C/C:H/I:H/A:H'
+        v2 = 'AV:N/AC:L/Au:N/C:C/I:C/A:C'
+        i = 'xxx.' + v1 + ' ' + v2 + '.xxx'
+        e = set()
+        e.add(CVSS3(v1))
+        e.add(CVSS2(v2))
+        self.assertEqual(set(parser.parse_cvss_from_text(i)), e)
+
+    def test_parse_from_text_multiple_vectors_same_cvss(self):
+        v = 'CVSS:3.0/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H'
+        e = [CVSS3(v)]
+        i = 'Title: {0}\nThis is an overview of {0} problem.\nLinks: {0}'.format(v)
+        self.assertEqual(parser.parse_cvss_from_text(i), e)
+
+    def test_json_ordering(self):
+        vectors_to_schema = {
+            'vectors_random3': 'schemas/cvss-v3.0.json',
+            'vectors_random31': 'schemas/cvss-v3.1.json',
+        }
+        for vectors_file_path, schema_file_path in vectors_to_schema.items():
+            with open(path.join(WD, vectors_file_path)) as f:
+                for line in f:
+                    vector, _ = line.split(' - ')
+                    cvss = CVSS3(vector).as_json(sort=True)
+                    old_key = ''
+                    for key in cvss:
+                        if key < old_key:
+                            self.fail('dict ordering was not preserved: key {} less than previous key {} for CVSS object {}'.format(key, old_key, cvss))
+                        old_key = key
+
+    def test_json_schema_repr(self):
+        try:
+            import jsonschema
+        except ImportError:
+            return
+        vectors_to_schema = {
+            'vectors_random3': 'schemas/cvss-v3.0.json',
+            'vectors_random31': 'schemas/cvss-v3.1.json',
+        }
+        for vectors_file_path, schema_file_path in vectors_to_schema.items():
+            with open(path.join(WD, vectors_file_path)) as f:
+                for line in f:
+                    vector, _ = line.split(' - ')
+                    cvss = CVSS3(vector)
+                    with open(path.join(WD, schema_file_path)) as schema_file:
+                        schema = json.load(schema_file)
+                    try:
+                        jsonschema.validate(instance=cvss.as_json(), schema=schema)
+                    except jsonschema.exceptions.ValidationError:
+                        self.fail('jsonschema validation failed on vector: {}'.format(vector))
+
 
 if __name__ == '__main__':
     unittest.main()

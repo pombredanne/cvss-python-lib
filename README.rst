@@ -1,15 +1,12 @@
 CVSS
 ====
 
-.. image:: https://img.shields.io/travis/skontar/cvss/master.svg
-   :target: https://travis-ci.org/skontar/cvss/
-   :alt: Travis CI test status
-
 This Python package contains CVSS v2 and v3 computation utilities and
 interactive calculator compatible with both Python 2 and Python 3.
 
-It is tested on Python versions supported by Travis, but it is simple
-enough to run on even older versions.
+The library is tested on all currently-supported Python versions available
+via GitHub Actions (with the exception of Python 2.7, which is EOL but
+still tested against), but it is simple enough to run on even older versions.
 
 Installation
 ------------
@@ -77,3 +74,10 @@ Testing
 
 For extensive testing, the test vectors were generated using official
 JavaScript generators and `cvsslib <https://github.com/ctxis/cvsslib>`_.
+
+To run all tests use the following script on a system with both Python 2 and Python 3 installed:
+
+::
+
+    $ cd tests
+    $ bash run_tests.sh
